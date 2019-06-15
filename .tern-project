@@ -1,0 +1,13 @@
+{
+  "libs": [
+    "browser"
+  ],
+  "loadEagerly": [],
+  "dontLoad": [],
+  "plugins": {
+    "modules": {},
+    "webpack": {
+      "configPath": "./node_modules/react-scripts/config/webpack.config.dev.js"
+    }
+  }
+}

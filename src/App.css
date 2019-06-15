@@ -62,3 +62,8 @@
   color: black;
   transform: scale(1.02);
 }
+
+.App-media-item-link {
+  text-decoration: none;
+  color: unset;
+}
