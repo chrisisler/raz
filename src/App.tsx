@@ -1,5 +1,5 @@
-import React, { useState, ReactNode, useEffect } from 'react'
-import { MemoryRouter, Route, Link, RouteComponentProps } from 'react-router-dom'
+import React, { useRef, useState, ReactNode, useEffect } from 'react'
+import { BrowserRouter, Route, Link, RouteComponentProps } from 'react-router-dom'
 
 import cached from 'one-cache'
 import './App.css'
@@ -18,10 +18,15 @@ interface Content {
   Poster: string
 }
 
-interface SearchResponse {
+type SearchResponse = {
   totalResults: string
-  Response: string
+  Response: 'False' | 'True'
   Search: Array<Content>
+}
+
+type ErrorResponse = {
+  Error: string
+  Response: 'False' | 'True'
 }
 
 interface FullContent extends Content {
@@ -52,9 +57,17 @@ interface FullContent extends Content {
   Response: string
 }
 
-const route = (url: string): void => {
-  window.history.pushState(null, '', url)
+// (A, [B, B, B, ...])) -> [B, A, B, A, B, ..., B]
+const interleave = (item: any, [first, ...rest]: any[]): any[] => {
+  if (first === void 0) {
+    return [item]
+  }
+  let interleavedRest = rest.reduce((acc, x) => acc.concat(item, x), [])
+  let result = [first].concat(interleavedRest)
+  return result
 }
+
+const valid = (data: string): boolean => !data.toLowerCase().includes('n/a')
 
 const createUrl = (params: string) =>
   `http://www.omdbapi.com?apikey=${process.env.REACT_APP_OMDB_API_KEY}${params}`
@@ -83,9 +96,7 @@ const ContentContainer = (props: { contents: Content[]; format: Format }) => {
   )
 }
 
-function FullContentView(
-  props: RouteComponentProps<{ imdbID: string; type: string }>
-): JSX.Element {
+function FullContentView(props: any): JSX.Element {
   let [loading, setLoading] = useState<boolean>(true)
   let [data, setData] = useState<FullContent | null>(null)
   let [error, setError] = useState<Error | null>(null)
@@ -94,13 +105,15 @@ function FullContentView(
     let cancelled = false
     async function effect(): Promise<void> {
       try {
-        let data: FullContent = await cached(imdbID, async () => {
+        let data: FullContent | ErrorResponse = await cached(imdbID, async () => {
           let endpoint = createUrl(`&i=${imdbID}&type=${type}`)
           return (await fetch(endpoint)).json()
         })
-        console.log('data is:', data)
         if (!cancelled) {
-          setData(data)
+          if ((data as ErrorResponse).Error) {
+            throw Error((data as ErrorResponse).Error)
+          }
+          setData(data as FullContent)
           setError(null)
         }
       } catch (error) {
@@ -124,27 +137,123 @@ function FullContentView(
     return <h1>Loading...</h1>
   } else if (error) {
     return <h1>Error</h1>
+  } else if (data) {
+    let { imdbRating, imdbID, Title, Year, Rated, Runtime, Genre, Director, Writer, Awards } = data
+    props.actions.setMessage(`IMDB ID: ${imdbID}`)
+    return (
+      <div className="App-full-content-container">
+        <div style={{ width: 'fit-content' }}>
+          <h1 className="App-full-content-title">{Title}</h1>
+          <small>{+imdbRating}/10</small>
+        </div>
+        <div>
+          <strong>
+            {Year} {Genre}
+          </strong>
+          &nbsp; {Rated}
+          {valid(Writer) && (
+            <div>
+              Written by{' '}
+              {interleave(
+                ', ',
+                Writer.split(', ').map(writer => (
+                  <span
+                    key={writer}
+                    className="App-full-content-director"
+                    title={`Click to search ${writer}`}
+                    onClick={() => {
+                      props.actions.search(writer)
+                    }}
+                  >
+                    {Writer}
+                  </span>
+                ))
+              )}
+            </div>
+          )}
+          {valid(Director) && (
+            <div>
+              Directed by{' '}
+              {interleave(
+                ', ',
+                Director.split(', ').map(director => (
+                  <span
+                    key={director}
+                    className="App-full-content-director"
+                    title={`Click to search ${director}`}
+                    onClick={() => {
+                      props.actions.search(director)
+                    }}
+                  >
+                    {director}
+                  </span>
+                ))
+              )}
+            </div>
+          )}
+          {valid(Awards) && <div>{Awards.slice(0, Awards.length - 1)}</div>}
+        </div>
+        <div>
+          Runtime: <strong>{Runtime}</strong>
+        </div>
+      </div>
+    )
+  } else {
+    throw Error('Unreachable')
   }
-  return <h1>Success: {JSON.stringify(data, null, 2)}</h1>
 }
 
 export default function App(): JSX.Element {
   let [movies, setMovies] = useState<Content[]>([])
   let [serieses, setSerieses] = useState<Content[]>([])
   let [episodes, setEpisodes] = useState<Content[]>([])
-  let [display] = useState<boolean>(
-    movies.length === 0 && serieses.length === 0 && episodes.length === 0
-  )
+  let [message, setMessage] = useState('')
   let [search, setSearch] = useState('')
-  let [total, setTotal] = useState(0)
+  let inputElem = useRef(null)
+
+  useEffect(() => {
+    async function effect(): Promise<void> {
+      try {
+        let data: SearchResponse | ErrorResponse = await cached(search, async () => {
+          let endpoint = createUrl(`&s=${search}`)
+          return (await fetch(endpoint)).json()
+        })
+        if (data.Response === 'False') {
+          setMessage('No results')
+          setSerieses([])
+          setMovies([])
+          setEpisodes([])
+        } else {
+          let { Search: searchResults, totalResults } = data as SearchResponse
+          setMessage(`${totalResults} results for: ${search}`)
+          searchResults.forEach((result: Content) => {
+            if (result.Type === Format.Series) setSerieses(_ => _.concat(result))
+            else if (result.Type === Format.Movie) setMovies(_ => _.concat(result))
+            else setEpisodes(_ => _.concat(result))
+          })
+        }
+      } catch (error) {
+        setMessage(error.message)
+        console.error('Error:', error.message)
+      }
+    }
+    if (search !== '') {
+      effect()
+      if (inputElem != null) {
+        // @ts-ignore
+        inputElem.current.value = search
+      }
+    }
+  }, [search])
 
   return (
-    <MemoryRouter>
+    <BrowserRouter>
       <main className="App">
         <header className="App-header">
           <h1>raz</h1>
         </header>
         <input
+          ref={inputElem}
           type="text"
           className="App-search"
           placeholder="Find movies, shows, and people..."
@@ -155,53 +264,44 @@ export default function App(): JSX.Element {
               setSerieses([])
               setMovies([])
               setEpisodes([])
-              setSearch('')
+              setMessage('')
             } else if (key === 'Enter') {
-              route('/')
-              try {
-                let { Search, totalResults }: SearchResponse = await cached(search, async () => {
-                  let endpoint = createUrl(`&s=${search}`)
-                  return (await fetch(endpoint)).json()
-                })
-                setSearch(search)
-                setTotal(+totalResults)
-                let newSeries: Content[] = []
-                let newMovies: Content[] = []
-                let newEpisodes: Content[] = []
-                Search.forEach((result: Content) => {
-                  if (result.Type === Format.Series) newSeries.push(result)
-                  else if (result.Type === Format.Movie) newMovies.push(result)
-                  else newEpisodes.push(result)
-                })
-                setSerieses(newSeries)
-                setMovies(newMovies)
-                setEpisodes(newEpisodes)
-              } catch (error) {
-                console.error('Error:', error.message)
-              }
+              setSearch(search)
             }
           }}
         />
-        {search && (
-          <small style={{ padding: '24px' }}>
-            {total} results for: {search}
-          </small>
-        )}
+        {message && <small style={{ padding: '16px' }}>{message}</small>}
         <Route
           exact
           path="/"
-          render={(): ReactNode =>
-            display && (
-              <>
-                <ContentContainer contents={movies} format={Format.Movie} />
-                <ContentContainer contents={serieses} format={Format.Series} />
+          render={(): ReactNode => (
+            <>
+              {!!movies.length && <ContentContainer contents={movies} format={Format.Movie} />}
+              {!!serieses.length && <ContentContainer contents={serieses} format={Format.Series} />}
+              {!!episodes.length && (
                 <ContentContainer contents={episodes} format={Format.Episode} />
-              </>
-            )
-          }
+              )}
+            </>
+          )}
         />
-        <Route exact path="/:type/:imdbID" component={FullContentView} />
+        <Route
+          exact
+          strict
+          path="/:type/:imdbID"
+          component={(routeProps: RouteComponentProps<{ type: string; imdbID: string }>) => {
+            return FullContentView({
+              ...routeProps,
+              actions: {
+                setMessage,
+                search: (s: string): void => {
+                  routeProps.history.push('/')
+                  setSearch(s)
+                }
+              }
+            })
+          }}
+        />
       </main>
-    </MemoryRouter>
+    </BrowserRouter>
   )
 }

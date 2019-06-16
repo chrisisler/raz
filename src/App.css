@@ -40,11 +40,11 @@
 
 .App-media-title {
   display: block;
-  font-weight: 200;
+  font-weight: 300;
   width: 100%;
-  font-size: 180%;
+  font-size: 140%;
   border-bottom: 1px solid darkgray;
-  text-transform: uppercase
+  /* text-transform: uppercase; */
 }
 
 .App-media-item {
@@ -66,4 +66,25 @@
 .App-media-item-link {
   text-decoration: none;
   color: unset;
+}
+
+.App-full-content-container {
+  /* border: 1px solid darkgray; */
+  padding-left: 32px;
+  width: 100%;
+  height: 100%;
+  font: inherit;
+}
+
+.App-full-content-title {
+  font-weight: 200;
+  font-size: 320%;
+  font-style: italic;
+  margin: 24px 0;
+}
+
+.App-full-content-director {
+  cursor: pointer;
+  text-decoration-line: underline;
+  paddind-right: 8px;
 }
